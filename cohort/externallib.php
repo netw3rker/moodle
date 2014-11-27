@@ -149,7 +149,9 @@ class core_cohort_external extends external_api {
     public static function delete_cohorts_parameters() {
         return new external_function_parameters(
             array(
-                'cohortids' => new external_multiple_structure(new external_value(PARAM_INT, 'cohort ID')),
+                'cohortids' => new external_multiple_structure(new external_value(PARAM_ALPHANUM, 'cohort ID')),
+                'type' => new external_value(PARAM_TEXT, 'The type of IDs being passed
+                  (can be either lowercase ID, or IDNumber)', VALUE_OPTIONAL)
             )
         );
     }
@@ -161,18 +163,19 @@ class core_cohort_external extends external_api {
      * @return null
      * @since Moodle 2.5
      */
-    public static function delete_cohorts($cohortids) {
+    public static function delete_cohorts($cohortids, $type='id') {
         global $CFG, $DB;
         require_once("$CFG->dirroot/cohort/lib.php");
 
-        $params = self::validate_parameters(self::delete_cohorts_parameters(), array('cohortids' => $cohortids));
+        $params = self::validate_parameters(self::delete_cohorts_parameters(), array('cohortids' => $cohortids, 'type' => $type));
+        $type = ($params['type'] == 'id' ? 'id' : 'idnumber');
 
         $transaction = $DB->start_delegated_transaction();
 
         foreach ($params['cohortids'] as $cohortid) {
             // Validate params.
-            $cohortid = validate_param($cohortid, PARAM_INT);
-            $cohort = $DB->get_record('cohort', array('id' => $cohortid), '*', MUST_EXIST);
+            $cohortid = validate_param($cohortid, PARAM_ALPHANUM);
+            $cohort = $DB->get_record('cohort', array($type => $cohortid), '*', MUST_EXIST);
 
             // Now security checks.
             $context = context::instance_by_id($cohort->contextid, MUST_EXIST);
@@ -207,8 +210,10 @@ class core_cohort_external extends external_api {
     public static function get_cohorts_parameters() {
         return new external_function_parameters(
             array(
-                'cohortids' => new external_multiple_structure(new external_value(PARAM_INT, 'Cohort ID')
-                    , 'List of cohort id. A cohort id is an integer.'),
+              'cohortids' => new external_multiple_structure(new external_value(PARAM_ALPHANUM, 'Cohort ID')
+                , 'List of cohort id. A cohort id is an integer.'),
+              'type' => new external_value(PARAM_TEXT, 'The type of IDs being passed
+                  (can be either lowercase ID, or IDNumber)', VALUE_OPTIONAL)
             )
         );
     }
@@ -220,15 +225,15 @@ class core_cohort_external extends external_api {
      * @return array of cohort objects (id, courseid, name)
      * @since Moodle 2.5
      */
-    public static function get_cohorts($cohortids) {
+    public static function get_cohorts($cohortids, $type='id') {
         global $DB;
 
-        $params = self::validate_parameters(self::get_cohorts_parameters(), array('cohortids' => $cohortids));
+        $params = self::validate_parameters(self::get_cohorts_parameters(), array('cohortids' => $cohortids, 'type' => $type));
 
         $cohorts = array();
         foreach ($params['cohortids'] as $cohortid) {
             // Validate params.
-            $cohort = $DB->get_record('cohort', array('id' => $cohortid), '*', MUST_EXIST);
+            $cohort = $DB->get_record('cohort', array($type => $cohortid), '*', MUST_EXIST);
 
             // Now security checks.
             $context = context::instance_by_id($cohort->contextid, MUST_EXIST);
@@ -283,7 +288,7 @@ class core_cohort_external extends external_api {
                 'cohorts' => new external_multiple_structure(
                     new external_single_structure(
                         array(
-                            'id' => new external_value(PARAM_INT, 'ID of the cohort'),
+                            'id' => new external_value(PARAM_INT, 'ID of the cohort', VALUE_OPTIONAL),
                             'categorytype' => new external_single_structure(
                                 array(
                                     'type' => new external_value(PARAM_TEXT, 'the name of the field: id (numeric value
@@ -293,13 +298,15 @@ class core_cohort_external extends external_api {
                                 )
                             ),
                             'name' => new external_value(PARAM_RAW, 'cohort name'),
-                            'idnumber' => new external_value(PARAM_RAW, 'cohort idnumber'),
+                            'idnumber' => new external_value(PARAM_RAW, 'cohort idnumber', VALUE_OPTIONAL),
                             'description' => new external_value(PARAM_RAW, 'cohort description', VALUE_OPTIONAL),
                             'descriptionformat' => new external_format_value('description', VALUE_DEFAULT),
                             'visible' => new external_value(PARAM_BOOL, 'cohort visible', VALUE_OPTIONAL),
                         )
                     )
-                )
+                ),
+              'type' => new external_value(PARAM_TEXT, 'The type of IDs being passed
+                  (can be either lowercase ID, or IDNumber)', VALUE_OPTIONAL)
             )
         );
     }
@@ -311,11 +318,12 @@ class core_cohort_external extends external_api {
      * @return null
      * @since Moodle 2.5
      */
-    public static function update_cohorts($cohorts) {
+    public static function update_cohorts($cohorts, $type='id') {
         global $CFG, $DB;
         require_once("$CFG->dirroot/cohort/lib.php");
 
-        $params = self::validate_parameters(self::update_cohorts_parameters(), array('cohorts' => $cohorts));
+        $params = self::validate_parameters(self::update_cohorts_parameters(), array('cohorts' => $cohorts, 'type' => $type));
+        $type = $params['type'];
 
         $transaction = $DB->start_delegated_transaction();
         $syscontext = context_system::instance();
@@ -327,7 +335,14 @@ class core_cohort_external extends external_api {
                 throw new invalid_parameter_exception('Invalid cohort name');
             }
 
-            $oldcohort = $DB->get_record('cohort', array('id' => $cohort->id), '*', MUST_EXIST);
+            $typefield = ($type == 'id') ? $cohort->id : $cohort->idnumber;
+
+            $oldcohort = $DB->get_record('cohort', array($type => $typefield), '*', MUST_EXIST);
+            /* The cohort could be looked up by IDNUMBER rather than ID. to avoid the id value being incorrect
+             * during update, these two values need to be updated with the database values here.
+             */
+            $cohort->id = $oldcohort->id;
+
             $oldcontext = context::instance_by_id($oldcohort->contextid, MUST_EXIST);
             require_capability('moodle/cohort:manage', $oldcontext);
 
@@ -399,7 +414,9 @@ class core_cohort_external extends external_api {
                             'usertype' => new external_single_structure (
                                 array(
                                     'type' => new external_value(PARAM_ALPHANUMEXT, 'The name of the field: id
-                                        (numeric value of id) or username (alphanumeric value of username) '),
+                                        (numeric value of id)
+                                        or username (alphanumeric value of username)
+                                        or idnumber (alphanumeric value of idnumber) '),
                                     'value' => new external_value(PARAM_RAW, 'The value of the cohort')
                                 )
                             )
@@ -440,7 +457,7 @@ class core_cohort_external extends external_api {
                     $warnings[] = $warning;
                     continue;
                 }
-                if ($usertype['type'] != 'id' && $usertype['type'] != 'username') {
+                if ($usertype['type'] != 'id' && $usertype['type'] != 'username' && $usertype['type'] != 'idnumber') {
                     $warning = array();
                     $warning['warningcode'] = '1';
                     $warning['message'] = 'invalid parameter: usertype='.$usertype['type'];
@@ -522,8 +539,11 @@ class core_cohort_external extends external_api {
                 'members' => new external_multiple_structure(
                     new external_single_structure(
                         array(
-                            'cohortid' => new external_value(PARAM_INT, 'cohort record id'),
-                            'userid' => new external_value(PARAM_INT, 'user id'),
+                            'cohortid' => new external_value(PARAM_ALPHANUM, 'cohort record id'),
+                            'userid' => new external_value(PARAM_ALPHANUM, 'user id'),
+                            'type' => new external_value(PARAM_TEXT,
+                              'ID Type (either id or idnumber) both the cohort id and the userid must use the same type',
+                              VALUE_OPTIONAL),
                         )
                     )
                 )
@@ -549,9 +569,13 @@ class core_cohort_external extends external_api {
         foreach ($params['members'] as $member) {
             $cohortid = $member['cohortid'];
             $userid = $member['userid'];
-
-            $cohort = $DB->get_record('cohort', array('id' => $cohortid), '*', MUST_EXIST);
-            $user = $DB->get_record('user', array('id' => $userid, 'deleted' => 0, 'mnethostid' => $CFG->mnet_localhost_id),
+            if (!isset($member['type']) || $member['type'] == 'id') {
+                $typefield = 'id';
+            } else {
+                $typefield = 'idnumber';
+            }
+            $cohort = $DB->get_record('cohort', array($typefield => $cohortid), '*', MUST_EXIST);
+            $user = $DB->get_record('user', array($typefield => $userid, 'deleted' => 0, 'mnethostid' => $CFG->mnet_localhost_id),
                 '*', MUST_EXIST);
 
             // Now security checks.
@@ -589,6 +613,7 @@ class core_cohort_external extends external_api {
         return new external_function_parameters(
             array(
                 'cohortids' => new external_multiple_structure(new external_value(PARAM_INT, 'Cohort ID')),
+                'type' => new external_value(PARAM_TEXT, 'ID Type (either id or idnumber) defaults to id'),
             )
         );
     }
@@ -600,15 +625,17 @@ class core_cohort_external extends external_api {
      * @return array with cohort id keys containing arrays of user ids
      * @since Moodle 2.5
      */
-    public static function get_cohort_members($cohortids) {
+    public static function get_cohort_members($cohortids, $type='id') {
         global $DB;
         $params = self::validate_parameters(self::get_cohort_members_parameters(), array('cohortids' => $cohortids));
+        $type = self::validate_parameters(self::get_cohort_members_parameters(), array('type' => $type));
+        $type = ($type == 'id') ? 'id' : 'idnumber';
 
         $members = array();
 
         foreach ($params['cohortids'] as $cohortid) {
             // Validate params.
-            $cohort = $DB->get_record('cohort', array('id' => $cohortid), '*', MUST_EXIST);
+            $cohort = $DB->get_record('cohort', array($type => $cohortid), '*', MUST_EXIST);
             // Now security checks.
             $context = context::instance_by_id($cohort->contextid, MUST_EXIST);
             if ($context->contextlevel != CONTEXT_COURSECAT and $context->contextlevel != CONTEXT_SYSTEM) {
