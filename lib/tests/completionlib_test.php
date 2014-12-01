@@ -823,7 +823,7 @@ class core_completionlib_testcase extends advanced_testcase {
     }
 
     /**
-     * Test course completed event.
+     * Test course completed event without a specific timestamp for completion.
      */
     public function test_course_completed_event() {
         global $USER;
@@ -836,6 +836,7 @@ class core_completionlib_testcase extends advanced_testcase {
 
         // Mark course as complete and get triggered event.
         $sink = $this->redirectEvents();
+        // No specific timestamp to indicate when completion happened. This moment in time is okay.
         $ccompletion->mark_complete();
         $events = $sink->get_events();
         $event = reset($events);
@@ -848,6 +849,38 @@ class core_completionlib_testcase extends advanced_testcase {
         $this->assertEquals(context_course::instance($this->course->id), $event->get_context());
         $this->assertInstanceOf('moodle_url', $event->get_url());
         $data = $ccompletion->get_record_data();
+        $this->assertEventLegacyData($data, $event);
+    }
+    /**
+     * Test course completed event with a custom timestamp.
+     */
+    public function test_course_completed_event_with_timestamp() {
+        global $USER;
+
+        $this->setup_data();
+        $this->setAdminUser();
+
+        $completionauto = array('completion' => COMPLETION_TRACKING_AUTOMATIC);
+        $ccompletion = new completion_completion(array('course' => $this->course->id, 'userid' => $this->user->id));
+
+        // Mark course as complete and get triggered event.
+        $sink = $this->redirectEvents();
+        // Create a time that is earlier than right now in order to demonstrate a completion time being set properly.
+        $completiontime = time() - 3600;
+        $ccompletion->mark_complete($completiontime);
+        $events = $sink->get_events();
+        $event = reset($events);
+
+        $this->assertInstanceOf('\core\event\course_completed', $event);
+        $this->assertEquals($this->course->id, $event->get_record_snapshot('course_completions', $event->objectid)->course);
+        $this->assertEquals($this->course->id, $event->courseid);
+        $this->assertEquals($USER->id, $event->userid);
+        $this->assertEquals($this->user->id, $event->relateduserid);
+        $this->assertEquals(context_course::instance($this->course->id), $event->get_context());
+        $this->assertInstanceOf('moodle_url', $event->get_url());
+        $data = $ccompletion->get_record_data();
+        // Check that the applied timestamp actually is saved as the timecompleted for this record.
+        $this->assertEquals($data->timecompleted, $completiontime);
         $this->assertEventLegacyData($data, $event);
     }
 

@@ -101,11 +101,15 @@ class completion_criteria_completion extends data_object {
     /**
      * Mark this criteria complete for the associated user
      *
-     * This method creates a course_completion_crit_compl record
+     * This method creates or updates a course_completion_crit_compl record
      */
-    public function mark_complete() {
+    public function mark_complete($timestamp=null) {
         // Create record
-        $this->timecompleted = time();
+        if (is_null($timestamp)) {
+            $this->timecompleted = time();
+        } else {
+            $this->timecompleted = $timestamp;
+        }
 
         // Save record
         if ($this->id) {
