@@ -12,5 +12,10 @@
     },
     "require": {
         "composer/installers": "^1.0.24"
+    },
+    "extra": {
+        "installer-paths": {
+            "core": ["type:drupal-core"]
+        }
     }
 }
